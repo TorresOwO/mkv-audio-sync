@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const { getMkvFiles } = require('./lib/utils');
-const { getMediaInfo, convertFps, mergeFiles } = require('./lib/ffmpeg');
+const { getMediaInfo, convertFps, extractAudioTrack, cleanAudio, mergeFiles } = require('./lib/ffmpeg');
 
 async function main() {
     console.log('=== MKV Audio Sync CLI ===');
@@ -87,6 +87,31 @@ async function main() {
         }
     } else {
         console.log('\nFPS match. Skipping conversion.');
+    }
+
+    // Audio Extraction and Cleaning
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🎵 Extrayendo y limpiando audio...');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    const audioRaw = path.join(outputDir, 'audio_extracted.ac3');
+    const audioClean = path.join(outputDir, 'audio_clean.ac3');
+
+    try {
+        // Extract audio track from source (or converted source)
+        await extractAudioTrack(audioSourceForSync, selectedTrackIndex, audioRaw);
+
+        // Clean and repair timestamps
+        await cleanAudio(audioRaw, audioClean, 192);
+
+        // Update source to use the cleaned audio for offset calculation and merge
+        audioSourceForSync = audioClean;
+
+        console.log('✅ Audio extraído y limpiado correctamente\n');
+    } catch (e) {
+        console.error('❌ Error en extracción/limpieza de audio:', e.error ? e.error.message : e);
+        // If extraction/cleaning fails, continue with the original file
+        console.log('⚠️  Continuando con archivo original...');
     }
 
     // Offset Calculation
