@@ -45,13 +45,13 @@ npm install
 
 ## 🚀 Uso
 
-### Inicio rápido
+### Modo interactivo (CLI)
 
 ```bash
 node cli.js
 ```
 
-### Flujo de trabajo
+#### Flujo de trabajo
 
 1. **Seleccionar archivo fuente** (el que contiene el audio en gallego, por ejemplo)
 2. **Seleccionar archivo destino** (el que contiene el video final)
@@ -62,15 +62,38 @@ node cli.js
    - ✅ Calcula el offset de sincronización
    - ✅ Fusiona todo con metadatos correctos
 
+### Modo no-interactivo (Automatización)
+
+Para automatización o scripts, usa `audio_sync.js` con argumentos:
+
+```bash
+node audio_sync.js <source_mkv> <audio_track_index> <target_mkv> <output_name>
+```
+
+#### Parámetros
+
+- `source_mkv` - Archivo MKV con el audio a sincronizar (ej: `galego.mkv`)
+- `audio_track_index` - Índice de la pista de audio del source (usualmente `1`)
+- `target_mkv` - Archivo MKV destino para sincronizar (ej: `video_final.mkv`)
+- `output_name` - Nombre del archivo de salida sin extensión (ej: `synced_output`)
+
+#### Ejemplo práctico
+
+```bash
+node audio_sync.js "5x01.-Vive libre ou morre.mkv" 1 "Breaking_Bad_5x01_Live_Free_Or_Die.mkv" episode_5x01_synced
+```
+
+Esto generará `output/episode_5x01_synced.mkv` automáticamente sin prompts interactivos.
+
 ### Resultado
 
-El archivo final se guarda en `output/synced_output.mkv` con:
+El archivo final se guarda en `output/<nombre>.mkv` con:
 - 🎥 Video del archivo destino
 - 🎵 Audio sincronizado del archivo fuente (como pista por defecto)
 - 🎵 Audio original del archivo destino (como pista secundaria)
 - 📝 Subtítulos del archivo destino
 
-## 🎯 Ejemplo práctico
+## 🎯 Ejemplo de uso interactivo
 
 ```
 === MKV Audio Sync CLI ===
@@ -265,9 +288,11 @@ Después de convertir FPS o extraer audio de MKV, los timestamps pueden quedar c
 Además de la CLI interactiva, el proyecto incluye scripts individuales:
 
 - `cli.js` - Aplicación CLI interactiva principal
+- `audio_sync.js` - 🆕 CLI no-interactiva con argumentos (para automatización)
 - `test_extract_clean.js` - Prueba extracción y limpieza de audio
 - `convert_galego.js` - Convierte un archivo específico
 - `calculate_offset.py` - Calcula offset entre dos archivos
+- `adaptive_sync.py` - Sincronización adaptativa con detección de silencios
 - `merge_final.js` - Fusiona con delay conocido
 - `add_metadata.js` - Añade metadatos a un archivo existente
 
