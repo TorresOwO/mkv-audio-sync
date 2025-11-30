@@ -260,6 +260,69 @@ def simple_stream_sync(clean_file, reference_file, output_file):
         segments.append((segment_start, len(clean), cumulative_delay))
         print(f"\nFinal segment: {segment_start/ANALYSIS_RATE:.2f}s - {len(clean)/ANALYSIS_RATE:.2f}s, delay: {cumulative_delay/ANALYSIS_RATE:.3f}s")
     
+    # POST-PROCESSING: Ensure delays are monotonic and bounded
+    print(f"\n{'='*60}")
+    print("Validating delay monotonicity...")
+    
+    if len(segments) > 1:
+        # Extract delays
+        delays = [seg[2] for seg in segments]
+        
+        first_delay = delays[0]
+        last_delay = delays[-1]
+        
+        # Determine bounds and trend
+        min_bound = min(first_delay, last_delay)
+        max_bound = max(first_delay, last_delay)
+        is_increasing = last_delay >= first_delay
+        
+        print(f"  Overall trend: {'INCREASING' if is_increasing else 'DECREASING'}")
+        print(f"  Bounds: [{min_bound/ANALYSIS_RATE:.3f}s, {max_bound/ANALYSIS_RATE:.3f}s]")
+        
+        corrected_delays = delays.copy()
+        corrections_made = False
+        
+        # Step 1: Clamp to bounds (removes large outliers)
+        for i in range(len(corrected_delays)):
+            original = corrected_delays[i]
+            clamped = max(min_bound, min(max_bound, original))
+            if clamped != original:
+                corrected_delays[i] = clamped
+                corrections_made = True
+        
+        # Step 2: Enforce monotonicity backwards
+        # We trust the future values more than past values for corrections
+        for i in range(len(corrected_delays) - 2, -1, -1):
+            current = corrected_delays[i]
+            next_val = corrected_delays[i+1]
+            
+            if is_increasing:
+                # Must be <= next
+                if current > next_val:
+                    corrected_delays[i] = next_val
+                    corrections_made = True
+            else:
+                # Must be >= next
+                if current < next_val:
+                    corrected_delays[i] = next_val
+                    corrections_made = True
+        
+        if corrections_made:
+            print("\n  Correcting delays...")
+            new_segments = []
+            for i, (start, end, _) in enumerate(segments):
+                old_delay = delays[i]
+                new_delay = corrected_delays[i]
+                new_segments.append((start, end, new_delay))
+                
+                if old_delay != new_delay:
+                    print(f"  Segment {i}: {old_delay/ANALYSIS_RATE:.3f}s -> {new_delay/ANALYSIS_RATE:.3f}s")
+            
+            segments = new_segments
+            print("  Correction complete!")
+        else:
+            print("  No corrections needed - delays are monotonic and bounded!")
+    
     print(f"\n{'='*60}")
     print(f"SUMMARY:")
     print(f"  Total silences found: {silence_count}")
