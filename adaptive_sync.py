@@ -248,7 +248,7 @@ def simple_stream_sync(clean_file, reference_file, output_file):
                         
                         cumulative_delay += delay
                         segment_start = silence_end
-                        print(f"  ✓ APPLIED -> Cumulative delay: {cumulative_delay/ANALYSIS_RATE:.3f}s")
+                        print(f"  APPLIED -> Cumulative delay: {cumulative_delay/ANALYSIS_RATE:.3f}s")
                     else:
                         # Delay not changing, don't create new segment
                         skipped_count += 1
