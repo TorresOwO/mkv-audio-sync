@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const { getMkvFiles } = require('./lib/utils');
-const { getMediaInfo, convertFps, extractAudioTrack, cleanAudio } = require('./lib/ffmpeg');
+const { getMediaInfo, convertFps, extractAudioTrack, cleanAudio, encodeAudio } = require('./lib/ffmpeg');
 const { getMkvInfo, mergeFiles } = require('./lib/mkv');
 
 async function main() {
@@ -115,21 +115,35 @@ async function main() {
         console.log('⚠️  Continuando con archivo original...');
     }
 
-    // Offset Calculation
-    console.log('\nCalculating sync offset...');
-    const offset = await calculateOffset(audioSourceForSync, answers.targetFile);
-    console.log(`Calculated Offset: ${offset} seconds`);
+    // Smart Synchronization
+    console.log('\nCalculating sync offset and generating synchronized audio...');
+    const syncedWav = path.join(outputDir, 'synced_audio.wav');
+
+    try {
+        await smartSynchronize(audioSourceForSync, answers.targetFile, syncedWav);
+        console.log('✅ Synchronized audio generated.');
+    } catch (e) {
+        console.error('❌ Synchronization failed:', e);
+        return;
+    }
+
+    // Encode to AC3 (or match source?)
+    // For now let's stick to AC3 192k as per previous logic
+    const finalAudio = path.join(outputDir, 'synced_audio.ac3');
+    try {
+        await encodeAudio(syncedWav, finalAudio, 'ac3', 192);
+        console.log('✅ Audio encoded to AC3.');
+    } catch (e) {
+        console.error('❌ Encoding failed:', e);
+        return;
+    }
 
     // Final Merge
     const finalOutput = path.join(outputDir, 'synced_output.mkv');
     console.log(`\nMerging into ${finalOutput}...`);
 
-    // Calculate delay (negative of offset)
-    // If offset is positive (audio is late), we need negative delay?
-    // calculate_offset.py: "If positive, file1 starts LATER (needs negative delay)"
-    // So delay = -offset.
-    const delay = Math.round(-parseFloat(offset) * 1000); // Convert to ms
-    console.log(`Applying Delay: ${delay}ms`);
+    // No delay needed as audio is already synced
+    const delay = 0;
 
     // Metadata extraction from original source
     let audioMetadata = {
@@ -156,7 +170,7 @@ async function main() {
 
     const inputs = [
         {
-            path: audioSourceForSync,
+            path: finalAudio,
             options: [
                 '--sync', `0:${delay}`,
                 '--language', `0:${audioMetadata.language}`,
@@ -180,20 +194,17 @@ async function main() {
     }
 }
 
-function calculateOffset(file1, file2) {
+function smartSynchronize(sourceFile, referenceFile, outputFile) {
     return new Promise((resolve, reject) => {
-        const scriptPath = path.join(__dirname, 'calculate_offset.py');
-        execFile('python', [scriptPath, file1, file2], (error, stdout, stderr) => {
+        const scriptPath = path.join(__dirname, 'adaptive_sync.py');
+        console.log('Running adaptive synchronization...');
+        execFile('python', [scriptPath, sourceFile, referenceFile, outputFile], (error, stdout, stderr) => {
             if (error) {
-                // If python fails, maybe try to read the file anyway if it was written
-            }
-
-            // Read the offset.txt file which is more reliable
-            try {
-                const offset = fs.readFileSync('offset.txt', 'utf-8').trim();
-                resolve(offset);
-            } catch (e) {
-                reject('Could not read offset from file.');
+                console.error(stdout); // Python script prints to stdout
+                reject(error);
+            } else {
+                console.log(stdout);
+                resolve();
             }
         });
     });
