@@ -3,7 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const { getMkvFiles } = require('./lib/utils');
-const { getMediaInfo, convertFps, extractAudioTrack, cleanAudio, mergeFiles } = require('./lib/ffmpeg');
+const { getMediaInfo, convertFps, extractAudioTrack, cleanAudio } = require('./lib/ffmpeg');
+const { getMkvInfo, mergeFiles } = require('./lib/mkv');
 
 async function main() {
     console.log('=== MKV Audio Sync CLI ===');
@@ -123,19 +124,56 @@ async function main() {
     const finalOutput = path.join(outputDir, 'synced_output.mkv');
     console.log(`\nMerging into ${finalOutput}...`);
 
-    // We need to invert the offset logic for the delay parameter?
-    // calculate_offset.py returns: "If positive, file1 starts LATER (needs negative delay)"
+    // Calculate delay (negative of offset)
+    // If offset is positive (audio is late), we need negative delay?
+    // calculate_offset.py: "If positive, file1 starts LATER (needs negative delay)"
     // So delay = -offset.
-    // Wait, let's check my previous manual run.
-    // Previous result: -0.9515.
-    // Manual merge used: +0.9515.
-    // So Delay = -Offset.
+    const delay = Math.round(-parseFloat(offset) * 1000); // Convert to ms
+    console.log(`Applying Delay: ${delay}ms`);
 
-    const delay = -parseFloat(offset);
-    console.log(`Applying Delay: ${delay}s`);
+    // Metadata extraction from original source
+    let audioMetadata = {
+        language: 'und',
+        title: 'Synced Audio'
+    };
 
     try {
-        await mergeFiles(audioSourceForSync, answers.targetFile, finalOutput, delay);
+        const info = await getMkvInfo(answers.sourceFile);
+        // Find the track corresponding to selectedTrackIndex
+        // selectedTrackIndex comes from ffmpeg stream index, which usually matches MKV track ID for audio if no complex structure
+        // But let's try to find by ID first
+        // Note: selectedTrackIndex is a string from inquirer value, convert to number if needed
+        const trackId = parseInt(selectedTrackIndex);
+        const track = info.tracks.find(t => t.id === trackId);
+        if (track && track.properties) {
+            if (track.properties.language) audioMetadata.language = track.properties.language;
+            if (track.properties.track_name) audioMetadata.title = track.properties.track_name;
+            console.log(`Preserving metadata: Language=${audioMetadata.language}, Title=${audioMetadata.title}`);
+        }
+    } catch (e) {
+        console.warn('Could not fetch metadata from source, using defaults.', e.message);
+    }
+
+    const inputs = [
+        {
+            path: audioSourceForSync,
+            options: [
+                '--sync', `0:${delay}`,
+                '--language', `0:${audioMetadata.language}`,
+                '--track-name', `0:${audioMetadata.title}`,
+                '--default-track', '0:yes'
+            ]
+        },
+        {
+            path: answers.targetFile,
+            options: [
+                // Append all tracks from target file
+            ]
+        }
+    ];
+
+    try {
+        await mergeFiles(finalOutput, inputs);
         console.log('Merge successful!');
     } catch (e) {
         console.error('Merge failed:', e);

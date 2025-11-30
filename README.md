@@ -17,6 +17,9 @@ Herramienta interactiva de línea de comandos para sincronizar y fusionar pistas
 - **Node.js** v14 o superior
 - **Python** 3.8 o superior
 - **numpy** (librería de Python)
+- **MKVToolNix** (debe estar en el PATH del sistema)
+  - `mkvmerge`: Para fusionar archivos MKV
+  - `mkvextract`: Para extraer pistas de audio
 
 ### Instalación de dependencias
 
@@ -107,6 +110,7 @@ mkv-audio-sync/
 ├── lib/
 │   ├── ffmpeg.js          # Utilidades de FFmpeg
 │   └── utils.js           # Funciones auxiliares
+│   └── mkv.js             # Utilidades de MKVToolNix
 ├── inputs/                # Coloca tus archivos MKV aquí
 └── output/                # Archivos procesados
 ```
@@ -143,14 +147,14 @@ El CLI realiza los siguientes pasos de forma automática:
 └─────────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ 4️⃣ EXTRACCIÓN DE AUDIO (NUEVO)                             │
+│ 4️⃣ EXTRACCIÓN DE AUDIO                                      │
 │   • Intenta usar mkvextract (más rápido)                    │
 │   • Fallback a ffmpeg si no está disponible                 │
 │   • Extrae solo la pista seleccionada (modo copy)           │
 └─────────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ 5️⃣ LIMPIEZA DE AUDIO (NUEVO)                               │
+│ 5️⃣ LIMPIEZA DE AUDIO                                        │
 │   • Genera timestamps PTS correctos (-fflags +genpts)       │
 │   • Resamplea con corrección asíncrona                      │
 │   • Re-codifica a AC3 @ 192kbps                             │
