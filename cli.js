@@ -189,6 +189,35 @@ async function main() {
     try {
         await mergeFiles(finalOutput, inputs);
         console.log('Merge successful!');
+
+        // Clean up temporary files
+        console.log('\nCleaning up temporary files...');
+        const tempFiles = [
+            audioRaw,              // audio_extracted.ac3
+            audioClean,            // audio_clean.ac3
+            syncedWav,             // synced_audio.wav
+            finalAudio             // synced_audio.ac3
+        ];
+
+        // Add converted file if it was created
+        if (audioSourceForSync.includes('converted_temp.mkv')) {
+            tempFiles.push(path.join(outputDir, 'converted_temp.mkv'));
+        }
+
+        let cleanedCount = 0;
+        for (const file of tempFiles) {
+            try {
+                if (fs.existsSync(file)) {
+                    fs.unlinkSync(file);
+                    cleanedCount++;
+                }
+            } catch (err) {
+                console.warn(`Could not delete ${path.basename(file)}: ${err.message}`);
+            }
+        }
+
+        console.log(`✅ Cleaned up ${cleanedCount} temporary file(s)`);
+        console.log(`\n✨ Final output: ${finalOutput}`);
     } catch (e) {
         console.error('Merge failed:', e);
     }
