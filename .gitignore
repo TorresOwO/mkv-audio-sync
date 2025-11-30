@@ -2,3 +2,4 @@ node_modules/*
 input
 output
 *.mkv
+offset.txt
