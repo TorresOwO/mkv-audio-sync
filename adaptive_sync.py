@@ -254,6 +254,14 @@ def sliding_window_sync(clean_file, reference_file, output_file):
         ref_match_pos = ref_start + shift
         delay = ref_match_pos - i
         
+        # CLAMP: Delay shouldn't jump wildly from the last valid point
+        # Max change allowed: 2 seconds (unless it's the very first point)
+        if raw_points:
+            last_valid_delay = raw_points[-1][1]
+            if abs(delay - last_valid_delay) > (2 * ANALYSIS_RATE):
+                # Too big jump, likely a false positive match
+                continue
+        
         # Only accept decent quality matches
         if quality > 0.25:
             raw_points.append((i, delay, quality))
