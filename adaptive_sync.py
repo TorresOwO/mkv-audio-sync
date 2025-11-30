@@ -179,16 +179,17 @@ def save_wav(audio_data, sample_rate, channels, output_path):
     except Exception as e:
         print(f"Error saving WAV: {e}")
 
-def simple_stream_sync(clean_file, reference_file, output_file):
+def sliding_window_sync(clean_file, reference_file, output_file):
     """
-    Simple index-by-index streaming synchronization.
+    Continuous synchronization using sliding window cross-correlation.
+    Scans the entire audio in steps, calculating delay at each point.
     """
     ANALYSIS_RATE = 8000
-    SILENCE_WINDOW = int(0.5 * ANALYSIS_RATE)  # 500ms window to check for silence
-    SILENCE_THRESHOLD = 100  # RMS threshold
-    STEP_SIZE = int(0.1 * ANALYSIS_RATE)  # Check every 100ms
+    WINDOW_SIZE = 10 * ANALYSIS_RATE  # 10 seconds window
+    STEP_SIZE = 2 * ANALYSIS_RATE     # 2 seconds step
+    SEARCH_MARGIN = 5 * ANALYSIS_RATE # +/- 5 seconds search
     
-    print("=== Simple Streaming Synchronization ===\n")
+    print("=== Continuous Sliding Window Synchronization ===\n")
     
     # Load audios
     print("Loading Clean audio...")
@@ -200,135 +201,126 @@ def simple_stream_sync(clean_file, reference_file, output_file):
     print(f"\nClean: {len(clean)/ANALYSIS_RATE:.1f}s")
     print(f"Reference: {len(ref)/ANALYSIS_RATE:.1f}s\n")
     
-    # Segments: (start, end, cumulative_delay)
+    # 1. Collect delay points
+    raw_points = [] # List of (time, delay, quality)
+    
+    print("Scanning audio with sliding window...")
+    
+    for i in range(0, len(clean) - WINDOW_SIZE, STEP_SIZE):
+        # Extract clean window
+        clean_seg = clean[i : i + WINDOW_SIZE]
+        
+        # Search range: previous delay +/- margin
+        # If no previous delay, assume 0
+        last_delay = raw_points[-1][1] if raw_points else 0
+        
+        # Center search on expected position
+        expected_ref_pos = i + last_delay
+        ref_start = max(0, int(expected_ref_pos - SEARCH_MARGIN))
+        ref_end = min(len(ref), int(expected_ref_pos + WINDOW_SIZE + SEARCH_MARGIN))
+        
+        ref_seg = ref[ref_start : ref_end]
+        
+        if len(clean_seg) < WINDOW_SIZE or len(ref_seg) < WINDOW_SIZE:
+            continue
+            
+        # Normalize
+        clean_norm = clean_seg.astype(np.float32)
+        ref_norm = ref_seg.astype(np.float32)
+        
+        clean_norm -= np.mean(clean_norm)
+        ref_norm -= np.mean(ref_norm)
+        
+        std_clean = np.std(clean_norm)
+        std_ref = np.std(ref_norm)
+        
+        if std_clean < 1 or std_ref < 1:
+            continue
+            
+        clean_norm /= std_clean
+        ref_norm /= std_ref
+        
+        # FFT Correlation
+        n_fft = 1 << (len(clean_norm) + len(ref_norm) - 1).bit_length()
+        fft_clean = np.fft.rfft(np.flip(clean_norm), n=n_fft)
+        fft_ref = np.fft.rfft(ref_norm, n=n_fft)
+        correlation = np.fft.irfft(fft_clean * fft_ref)
+        
+        peak_idx = np.argmax(correlation)
+        peak_value = correlation[peak_idx]
+        quality = peak_value / len(clean_norm)
+        
+        shift = peak_idx - (len(clean_norm) - 1)
+        ref_match_pos = ref_start + shift
+        delay = ref_match_pos - i
+        
+        # Only accept decent quality matches
+        if quality > 0.25:
+            raw_points.append((i, delay, quality))
+            
+        if i % (STEP_SIZE * 10) == 0:
+            print(f"  Scanned {i/ANALYSIS_RATE:.1f}s...")
+
+    print(f"\nCollected {len(raw_points)} raw points.")
+    
+    if not raw_points:
+        print("No valid synchronization points found.")
+        return
+
+    # 2. Filter and Smooth Delays
+    # Apply median filter to remove outliers
+    filtered_points = []
+    filter_window = 5 # Number of points to consider for median
+    
+    for k in range(len(raw_points)):
+        start_idx = max(0, k - filter_window // 2)
+        end_idx = min(len(raw_points), k + filter_window // 2 + 1)
+        window_points = raw_points[start_idx:end_idx]
+        
+        # Get median delay
+        delays = [p[1] for p in window_points]
+        median_delay = np.median(delays)
+        
+        filtered_points.append((raw_points[k][0], median_delay))
+
+    # 3. Create Segments
+    # Only create a new segment if the delay changes significantly AND stays changed
     segments = []
-    segment_start = 0
-    cumulative_delay = 0
+    current_start = 0
+    current_delay = filtered_points[0][1]
     
-    i = 0
-    silence_count = 0
-    skipped_count = 0
-    applied_count = 0
+    print("\nAnalyzing delay transitions (Filtered)...")
     
-    print("Scanning audio index-by-index...\n")
-    
-    while i < len(clean):
-        # Check if current position is silence
-        if is_silence_at(clean, i, SILENCE_WINDOW, SILENCE_THRESHOLD):
-            # Found silence, find its end
-            silence_start = i
-            while i < len(clean) and is_silence_at(clean, i, SILENCE_WINDOW, SILENCE_THRESHOLD):
-                i += STEP_SIZE
-            silence_end = i
-            
-            silence_duration = (silence_end - silence_start) / ANALYSIS_RATE
-            
-            # Only process silences >= 0.5 seconds
-            if silence_duration >= 0.5:
-                silence_count += 1
-                
-                # Calculate delay AFTER silence
-                pos_after_silence = silence_end
-                expected_pos_ref = pos_after_silence + cumulative_delay
-                
-                if pos_after_silence < len(clean) and expected_pos_ref < len(ref):
-                    delay, quality, window = calculate_delay_progressive(clean, ref, pos_after_silence, int(expected_pos_ref), ANALYSIS_RATE)
-                    
-                    # Apply if quality is decent (lowered threshold)
-                    if quality >= 0.25 and abs(delay) >= ANALYSIS_RATE * 0.05:
-                        # Delay is changing! Save segment before silence and update cumulative
-                        applied_count += 1
-                        
-                        print(f"\n=== Silence #{silence_count} at {silence_start/ANALYSIS_RATE:.2f}s - {silence_end/ANALYSIS_RATE:.2f}s (duration: {silence_duration:.2f}s) ===")
-                        print(f"  Delay: {delay/ANALYSIS_RATE:.3f}s (quality: {quality:.3f}, window: {window}s)")
-                        
-                        if silence_start > segment_start:
-                            segments.append((segment_start, silence_start, cumulative_delay))
-                            print(f"  Segment saved: {segment_start/ANALYSIS_RATE:.2f}s - {silence_start/ANALYSIS_RATE:.2f}s")
-                        
-                        cumulative_delay += delay
-                        segment_start = silence_end
-                        print(f"  APPLIED -> Cumulative delay: {cumulative_delay/ANALYSIS_RATE:.3f}s")
-                    else:
-                        # Delay not changing, don't create new segment
-                        skipped_count += 1
+    for k in range(1, len(filtered_points)):
+        time, delay = filtered_points[k]
         
-        i += STEP_SIZE
-    
+        # Check for significant change (> 100ms)
+        if abs(delay - current_delay) > (0.1 * ANALYSIS_RATE):
+            # Delay changed. Is it stable?
+            # Look ahead to confirm it's not a blip
+            is_stable = True
+            look_ahead = 3
+            if k + look_ahead < len(filtered_points):
+                for j in range(1, look_ahead + 1):
+                    if abs(filtered_points[k+j][1] - delay) > (0.1 * ANALYSIS_RATE):
+                        is_stable = False
+                        break
+            
+            if is_stable:
+                # Confirm segment change
+                segments.append((current_start, time, current_delay))
+                print(f"  Segment: {current_start/ANALYSIS_RATE:.1f}s - {time/ANALYSIS_RATE:.1f}s, Delay: {current_delay/ANALYSIS_RATE:.3f}s")
+                
+                current_start = time
+                current_delay = delay
+            
     # Final segment
-    if segment_start < len(clean):
-        segments.append((segment_start, len(clean), cumulative_delay))
-        print(f"\nFinal segment: {segment_start/ANALYSIS_RATE:.2f}s - {len(clean)/ANALYSIS_RATE:.2f}s, delay: {cumulative_delay/ANALYSIS_RATE:.3f}s")
-    
-    # POST-PROCESSING: Ensure delays are monotonic and bounded
-    print(f"\n{'='*60}")
-    print("Validating delay monotonicity...")
-    
-    if len(segments) > 1:
-        # Extract delays
-        delays = [seg[2] for seg in segments]
-        
-        first_delay = delays[0]
-        last_delay = delays[-1]
-        
-        # Determine bounds and trend
-        min_bound = min(first_delay, last_delay)
-        max_bound = max(first_delay, last_delay)
-        is_increasing = last_delay >= first_delay
-        
-        print(f"  Overall trend: {'INCREASING' if is_increasing else 'DECREASING'}")
-        print(f"  Bounds: [{min_bound/ANALYSIS_RATE:.3f}s, {max_bound/ANALYSIS_RATE:.3f}s]")
-        
-        corrected_delays = delays.copy()
-        corrections_made = False
-        
-        # Step 1: Clamp to bounds (removes large outliers)
-        for i in range(len(corrected_delays)):
-            original = corrected_delays[i]
-            clamped = max(min_bound, min(max_bound, original))
-            if clamped != original:
-                corrected_delays[i] = clamped
-                corrections_made = True
-        
-        # Step 2: Enforce monotonicity backwards
-        # We trust the future values more than past values for corrections
-        for i in range(len(corrected_delays) - 2, -1, -1):
-            current = corrected_delays[i]
-            next_val = corrected_delays[i+1]
-            
-            if is_increasing:
-                # Must be <= next
-                if current > next_val:
-                    corrected_delays[i] = next_val
-                    corrections_made = True
-            else:
-                # Must be >= next
-                if current < next_val:
-                    corrected_delays[i] = next_val
-                    corrections_made = True
-        
-        if corrections_made:
-            print("\n  Correcting delays...")
-            new_segments = []
-            for i, (start, end, _) in enumerate(segments):
-                old_delay = delays[i]
-                new_delay = corrected_delays[i]
-                new_segments.append((start, end, new_delay))
-                
-                if old_delay != new_delay:
-                    print(f"  Segment {i}: {old_delay/ANALYSIS_RATE:.3f}s -> {new_delay/ANALYSIS_RATE:.3f}s")
-            
-            segments = new_segments
-            print("  Correction complete!")
-        else:
-            print("  No corrections needed - delays are monotonic and bounded!")
+    segments.append((current_start, len(clean), current_delay))
+    print(f"  Segment: {current_start/ANALYSIS_RATE:.1f}s - {len(clean)/ANALYSIS_RATE:.1f}s, Delay: {current_delay/ANALYSIS_RATE:.3f}s")
     
     print(f"\n{'='*60}")
     print(f"SUMMARY:")
-    print(f"  Total silences found: {silence_count}")
-    print(f"  Delays applied: {applied_count}")
-    print(f"  Delays skipped: {skipped_count}")
-    print(f"  Final segments: {len(segments)}")
+    print(f"  Total segments: {len(segments)}")
     print(f"{'='*60}\n")
     
     # Reconstruct
@@ -381,4 +373,4 @@ if __name__ == "__main__":
     reference_file = sys.argv[2]
     output_file = sys.argv[3]
     
-    simple_stream_sync(clean_file, reference_file, output_file)
+    sliding_window_sync(clean_file, reference_file, output_file)
