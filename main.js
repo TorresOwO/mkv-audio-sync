@@ -265,10 +265,11 @@ ipcMain.handle('start-sync', async (event, { sourceFile, targetFile, trackIndex 
         return { success: true, outputPath };
 
     } catch (error) {
-        if (error.message.includes('cancelled')) {
+        const errorMessage = error?.message || String(error) || 'Unknown error';
+        if (errorMessage.includes('cancelled')) {
             log('Process cancelled by user.', 'warning');
         } else {
-            log(`Error: ${error.message}`, 'error');
+            log(`Error: ${errorMessage}`, 'error');
         }
         sendProgress(0, 'Cancelled');
         throw error;
@@ -355,10 +356,11 @@ ipcMain.handle('start-batch-sync', async (event, { sourceFolder, targetFolder })
 
                 await processSync(match.source, match.target, trackIndex);
             } catch (e) {
-                if (e.message.includes('cancelled')) {
+                const errorMessage = e?.message || String(e) || 'Unknown error';
+                if (errorMessage.includes('cancelled')) {
                     throw e; // Propagate cancel
                 }
-                log(`Failed to sync ${path.basename(match.source)}: ${e.message}`, 'error');
+                log(`Failed to sync ${path.basename(match.source)}: ${errorMessage}`, 'error');
             }
             completed++;
             sendProgress((completed / matches.length) * 100, `Batch: ${completed}/${matches.length} Done`);
@@ -368,10 +370,11 @@ ipcMain.handle('start-batch-sync', async (event, { sourceFolder, targetFolder })
         return { success: true };
 
     } catch (error) {
-        if (error.message.includes('cancelled')) {
+        const errorMessage = error?.message || String(error) || 'Unknown error';
+        if (errorMessage.includes('cancelled')) {
             log('Batch cancelled.', 'warning');
         } else {
-            log(`Batch Error: ${error.message}`, 'error');
+            log(`Batch Error: ${errorMessage}`, 'error');
         }
         sendProgress(0, 'Cancelled');
         throw error;
