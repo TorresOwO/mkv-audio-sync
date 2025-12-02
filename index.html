@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MKV Audio Sync</title>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --card-bg: #2d2d2d;
+            --text-color: #e0e0e0;
+            --accent-color: #007acc;
+            --accent-hover: #005f9e;
+            --border-color: #3e3e3e;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            font-weight: 300;
+            letter-spacing: 1px;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        select,
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            background-color: #3e3e3e;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: var(--accent-hover);
+        }
+
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-group select,
+        .input-group input {
+            flex: 1;
+        }
+
+        .input-group button {
+            width: auto;
+            margin-top: 0;
+            padding: 0 15px;
+        }
+
+        .progress-container {
+            width: 100%;
+            background-color: #333;
+            border-radius: 4px;
+            margin-top: 20px;
+            height: 10px;
+            overflow: hidden;
+            display: none;
+        }
+
+        .progress-bar {
+            width: 0%;
+            height: 100%;
+            background-color: #4CAF50;
+            transition: width 0.3s ease;
+        }
+
+        .progress-indeterminate {
+            width: 100%;
+            background: linear-gradient(90deg, #333 25%, #4CAF50 50%, #333 75%);
+            background-size: 200% 100%;
+            animation: loading 1.5s infinite;
+        }
+
+        @keyframes loading {
+            0% {
+                background-position: 200% 0;
+            }
+
+            100% {
+                background-position: -200% 0;
+            }
+        }
+
+        #log-area {
+            flex: 1;
+            background-color: #111;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            border: 1px solid var(--border-color);
+            color: #d4d4d4;
+            min-height: 0;
+        }
+
+        .log-entry {
+            margin-bottom: 2px;
+        }
+
+        .log-info {
+            color: #d4d4d4;
+        }
+
+        .log-success {
+            color: #4CAF50;
+        }
+
+        .log-warning {
+            color: #FFC107;
+        }
+
+        .log-error {
+            color: #F44336;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .mode-switch {
+            display: flex;
+            gap: 10px;
+            background: #333;
+            padding: 5px;
+            border-radius: 4px;
+        }
+
+        .mode-btn {
+            background: transparent;
+            border: none;
+            color: #aaa;
+            padding: 5px 10px;
+            cursor: pointer;
+            margin: 0;
+            font-size: 0.9em;
+        }
+
+        .mode-btn.active {
+            background: var(--accent-color);
+            color: white;
+            border-radius: 3px;
+        }
+
+        #open-folder-btn {
+            background-color: #444;
+            margin-top: 10px;
+        }
+
+        #open-folder-btn:hover {
+            background-color: #555;
+        }
+
+        .lang-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .lang-selector select {
+            width: auto;
+            padding: 5px 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header-actions">
+                <h2>Configuration</h2>
+                <div style="display: flex; gap: 20px; align-items: center;">
+                    <div class="lang-selector">
+                        <label id="lang-label" style="margin: 0;">Language</label>
+                        <select id="lang-select">
+                            <option value="en">English</option>
+                            <option value="es" selected>Español</option>
+                        </select>
+                    </div>
+                    <div class="mode-switch">
+                        <button class="mode-btn active" id="mode-single">Single File</button>
+                        <button class="mode-btn" id="mode-batch">Batch (Series)</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Single File Mode -->
+            <div id="single-mode-container">
+                <div class="form-group">
+                    <label for="source-select">Source MKV (Audio Provider)</label>
+                    <div class="input-group">
+                        <select id="source-select">
+                            <option value="" disabled selected>Select a file...</option>
+                        </select>
+                        <button id="source-browse">Browse</button>
+                    </div>
+                </div>
+
+                <div class="form-group hidden" id="track-group">
+                    <label for="track-select">Audio Track</label>
+                    <select id="track-select">
+                        <option value="" disabled selected>Select a track...</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="target-select">Target MKV (Video Provider)</label>
+                    <div class="input-group">
+                        <select id="target-select">
+                            <option value="" disabled selected>Select a file...</option>
+                        </select>
+                        <button id="target-browse">Browse</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Batch Mode -->
+            <div id="batch-mode-container" class="hidden">
+                <div class="form-group">
+                    <label for="batch-source-folder">Source Folder (Audio Provider)</label>
+                    <div class="input-group">
+                        <input type="text" id="batch-source-folder" readonly placeholder="Select source folder...">
+                        <button id="batch-source-browse">Browse</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="batch-target-folder">Target Folder (Video Provider)</label>
+                    <div class="input-group">
+                        <input type="text" id="batch-target-folder" readonly placeholder="Select target folder...">
+                        <button id="batch-target-browse">Browse</button>
+                    </div>
+                </div>
+            </div>
+
+            <button id="sync-btn" disabled>Start Synchronization</button>
+            <button id="cancel-btn" class="hidden" style="background-color: #d32f2f;">Cancel Operation</button>
+            <button id="open-folder-btn" class="hidden">Open Output Folder</button>
+
+            <div class="progress-container" id="progress-container">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div id="progress-text"
+                style="text-align: center; margin-top: 5px; color: #aaa; font-size: 0.9em; min-height: 20px;"></div>
+        </div>
+
+        <div id="log-area"></div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+
+</html>
