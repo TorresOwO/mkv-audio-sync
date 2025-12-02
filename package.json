@@ -1,21 +1,46 @@
 {
   "name": "mkv-audio-sync",
   "version": "1.0.0",
-  "description": "",
+  "description": "MKV Audio Sync - Synchronize audio tracks across video files",
   "license": "ISC",
   "author": "",
   "type": "commonjs",
-  "main": "index.js",
+  "main": "main.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node cli.js",
+    "start-gui": "electron .",
+    "build": "electron-builder"
+  },
+  "build": {
+    "appId": "com.mkv-audio-sync.app",
+    "productName": "MKV Audio Sync",
+    "win": {
+      "target": "dir",
+      "icon": "icon.png"
+    },
+    "files": [
+      "**/*",
+      "!inputs/*",
+      "!output/*",
+      "!.git/*",
+      "!.gitignore",
+      "!*.md"
+    ],
+    "extraResources": [
+      {
+        "from": "adaptive_sync.py",
+        "to": "adaptive_sync.py"
+      }
+    ]
   },
   "dependencies": {
     "inquirer": "^8.2.7",
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "ffmpeg-static": "^5.3.0"
   },
   "devDependencies": {
-    "ffmpeg-static": "^5.3.0"
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
   }
 }

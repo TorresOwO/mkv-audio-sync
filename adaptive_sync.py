@@ -4,6 +4,9 @@ import os
 import sys
 import re
 
+# Fix for Windows console encoding
+sys.stdout.reconfigure(encoding='utf-8')
+
 def get_ffmpeg_path():
     """Locates ffmpeg executable."""
     ffmpeg_path = os.path.join(os.getcwd(), 'node_modules', 'ffmpeg-static', 'ffmpeg.exe')
@@ -186,10 +189,41 @@ def sliding_window_sync(clean_file, reference_file, output_file):
     """
     ANALYSIS_RATE = 8000
     WINDOW_SIZE = 10 * ANALYSIS_RATE  # 10 seconds window
-    STEP_SIZE = 2 * ANALYSIS_RATE     # 2 seconds step
-    SEARCH_MARGIN = 5 * ANALYSIS_RATE # +/- 5 seconds search
+    STEP_SIZE = 1 * ANALYSIS_RATE     # 1 second step
+    SEARCH_MARGIN = 4 * ANALYSIS_RATE # +/- 4 seconds search (Strict margin to ignore 7s/32s errors)
     
     print("=== Continuous Sliding Window Synchronization ===\n")
+    
+    # Helper to verify a delay at a future position
+    def verify_delay(clean, ref, check_pos, proposed_delay, rate, win_size):
+        if check_pos >= len(clean) - win_size:
+            return False
+            
+        c_seg = clean[check_pos : check_pos + win_size]
+        
+        # Check at proposed_delay
+        r_start = int(check_pos + proposed_delay)
+        if r_start < 0 or r_start + win_size > len(ref):
+            return False
+            
+        r_seg = ref[r_start : r_start + win_size]
+        
+        # Quick correlation check
+        c_norm = c_seg.astype(np.float32) - np.mean(c_seg)
+        r_norm = r_seg.astype(np.float32) - np.mean(r_seg)
+        
+        if np.std(c_norm) < 1 or np.std(r_norm) < 1:
+            return False # Silence, can't verify
+            
+        # Direct correlation coefficient
+        corr = np.sum(c_norm * r_norm)
+        norm_factor = np.sqrt(np.sum(c_norm**2) * np.sum(r_norm**2))
+        
+        if norm_factor < 1e-6:
+            return False
+            
+        score = corr / norm_factor
+        return score > 0.2 # Threshold for verification
     
     # Load audios
     print("Loading Clean audio...")
@@ -206,13 +240,22 @@ def sliding_window_sync(clean_file, reference_file, output_file):
     
     print("Scanning audio with sliding window...")
     
+    # We assume the delay is relatively small (within SEARCH_MARGIN)
+    # If there is a large offset (e.g. > 10s), it's likely an error or requires manual sync.
+    # We start searching around 0.
+    initial_offset = 0
+    
+    # Start scanning from the beginning (we don't skip any time)
     for i in range(0, len(clean) - WINDOW_SIZE, STEP_SIZE):
         # Extract clean window
         clean_seg = clean[i : i + WINDOW_SIZE]
         
-        # Search range: previous delay +/- margin
-        # If no previous delay, assume 0
-        last_delay = raw_points[-1][1] if raw_points else 0
+        # Search range: use initial offset + accumulated delay adjustment
+        # On first iteration, use initial_offset from audio start analysis
+        if not raw_points:
+            last_delay = initial_offset
+        else:
+            last_delay = raw_points[-1][1]
         
         # Center search on expected position
         expected_ref_pos = i + last_delay
@@ -254,16 +297,43 @@ def sliding_window_sync(clean_file, reference_file, output_file):
         ref_match_pos = ref_start + shift
         delay = ref_match_pos - i
         
-        # CLAMP: Delay shouldn't jump wildly from the last valid point
-        # Max change allowed: 2 seconds (unless it's the very first point)
-        if raw_points:
-            last_valid_delay = raw_points[-1][1]
-            if abs(delay - last_valid_delay) > (2 * ANALYSIS_RATE):
-                # Too big jump, likely a false positive match
-                continue
+        # CLAMP & VERIFY: 
+        # If delay jumps significantly (>2s), verify it's not a glitch (like missing sound effect).
+        # We check the NEXT window to see if it agrees with this new delay.
         
-        # Only accept decent quality matches
-        if quality > 0.25:
+        is_valid_point = False
+        
+        if not raw_points:
+            # First point: Accept if quality is decent, or verify if it's a large jump from 0
+            if abs(delay) > 2 * ANALYSIS_RATE:
+                # Large initial offset? Verify with next window
+                print(f"  ? Potential large initial offset {delay/ANALYSIS_RATE:.3f}s. Verifying...")
+                if verify_delay(clean, ref, i + STEP_SIZE, delay, ANALYSIS_RATE, WINDOW_SIZE):
+                    is_valid_point = True
+                    print(f"  ✓ Verified initial offset.")
+                else:
+                    print(f"  ✗ Could not verify. Ignoring.")
+            elif quality > 0.25:
+                is_valid_point = True
+        else:
+            last_valid_delay = raw_points[-1][1]
+            jump = abs(delay - last_valid_delay)
+            
+            if jump > (2 * ANALYSIS_RATE):
+                # Large jump detected. Is it real (scene cut) or glitch (missing audio)?
+                # Verify with next window
+                # print(f"  ? Jump detected ({last_valid_delay/ANALYSIS_RATE:.2f}s -> {delay/ANALYSIS_RATE:.2f}s). Verifying...")
+                
+                if verify_delay(clean, ref, i + STEP_SIZE, delay, ANALYSIS_RATE, WINDOW_SIZE):
+                    is_valid_point = True
+                    # print(f"  ✓ Jump verified.")
+                else:
+                    # print(f"  ✗ Jump rejected (glitch/missing audio). Keeping previous delay.")
+                    pass
+            elif quality > 0.25:
+                is_valid_point = True
+        
+        if is_valid_point:
             raw_points.append((i, delay, quality))
             
         if i % (STEP_SIZE * 10) == 0:
