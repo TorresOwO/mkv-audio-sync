@@ -3,3 +3,6 @@ input
 output
 *.mkv
 offset.txt
+dist
+dist/*
+__pycache__
